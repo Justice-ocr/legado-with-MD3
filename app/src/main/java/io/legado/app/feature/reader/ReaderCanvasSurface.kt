@@ -1370,7 +1370,8 @@ fun ReaderCanvasSurface(
                     val hitElement = hitPage?.elementAt(down.position.x, downPageY)
                     val elementHandled = if (
                         hitPage != null && hitElement is ReaderElement.Text &&
-                        hitElement.markingId != null
+                        hitElement.markingId != null &&
+                        !hitElement.markingId.startsWith("content-process:")
                     ) {
                         val markingElements = hitPage.elements
                             .filterIsInstance<ReaderElement.Text>()
@@ -1867,7 +1868,29 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawScrollPageConte
             }
         } ?: drawRect(Color.Gray.copy(alpha = .18f), Offset(e.bounds.left, e.bounds.top), Size(e.bounds.width, e.bounds.height))
         is ReaderElement.Review -> if (e.count > 0) drawReview(native, e, data.paints.values.firstOrNull()?.color ?: android.graphics.Color.GRAY)
-        is ReaderElement.Action -> Unit
+        is ReaderElement.Action -> e.colorArgb?.let { color ->
+            val center = Offset(
+                (e.bounds.left + e.bounds.right) / 2f,
+                (e.bounds.top + e.bounds.bottom) / 2f,
+            )
+            val radius = minOf(e.bounds.width, e.bounds.height) * 0.42f
+            val stroke = (radius * 0.18f).coerceAtLeast(1f)
+            drawCircle(Color(color), radius, center, style = Stroke(stroke))
+            drawLine(
+                Color(color),
+                center,
+                Offset(center.x, center.y - radius * 0.55f),
+                stroke,
+                cap = StrokeCap.Round,
+            )
+            drawLine(
+                Color(color),
+                center,
+                Offset(center.x + radius * 0.45f, center.y),
+                stroke,
+                cap = StrokeCap.Round,
+            )
+        }
         is ReaderElement.Spacer -> Unit
         is ReaderElement.ParagraphMarker -> {
             if (e.circular) {
@@ -2311,7 +2334,25 @@ private fun ReaderPageCanvas(
                 }
             } ?: drawRect(Color.Gray.copy(alpha = .18f), Offset(e.bounds.left, e.bounds.top), Size(e.bounds.width, e.bounds.height))
             is ReaderElement.Review -> if (e.count > 0) drawReview(native, e, paints.values.firstOrNull()?.color ?: android.graphics.Color.GRAY)
-            is ReaderElement.Action -> Unit
+            is ReaderElement.Action -> e.colorArgb?.let { color ->
+                val center = Offset(
+                    (e.bounds.left + e.bounds.right) / 2f,
+                    (e.bounds.top + e.bounds.bottom) / 2f,
+                )
+                val radius = minOf(e.bounds.width, e.bounds.height) * 0.42f
+                val stroke = (radius * 0.18f).coerceAtLeast(1f)
+                drawCircle(Color(color), radius, center, style = Stroke(stroke))
+                drawLine(
+                    Color(color), center,
+                    Offset(center.x, center.y - radius * 0.55f), stroke,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    Color(color), center,
+                    Offset(center.x + radius * 0.45f, center.y), stroke,
+                    cap = StrokeCap.Round,
+                )
+            }
             is ReaderElement.Spacer -> Unit
             is ReaderElement.ParagraphMarker -> {
                 if (e.circular) {

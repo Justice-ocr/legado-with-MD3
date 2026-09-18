@@ -2,6 +2,7 @@ package io.legado.app.ui.book.read
 
 import androidx.compose.runtime.Stable
 import io.legado.app.domain.model.AiReasoningLevel
+import io.legado.app.domain.model.AiRewriteContextMode
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -64,6 +65,12 @@ data class AiRewriteHistoryUi(
 )
 
 @Stable
+data class AiRewriteModelUi(
+    val id: String,
+    val name: String,
+)
+
+@Stable
 data class AiTextRewriteUiState(
     val bookUrl: String = "",
     val chapterIndex: Int = -1,
@@ -73,6 +80,8 @@ data class AiTextRewriteUiState(
     val isApplying: Boolean = false,
     val originalText: String = "",
     val rewrittenText: String = "",
+    val aiOriginalText: String = "",
+    val aiArtifactId: String? = null,
     val reasoningText: String = "",
     val thinkingDuration: Int = 0,
     val selectedPresetId: String = "",
@@ -80,6 +89,9 @@ data class AiTextRewriteUiState(
     val temporaryInstruction: String = "",
     val history: ImmutableList<AiRewriteHistoryUi> = persistentListOf(),
     val referenceCount: Int = 0,
+    val contextMode: AiRewriteContextMode = AiRewriteContextMode.WITH_CONTEXT,
+    val availableModels: ImmutableList<AiRewriteModelUi> = persistentListOf(),
+    val selectedModelProfileId: String? = null,
     val errorMessage: String? = null,
 )
 

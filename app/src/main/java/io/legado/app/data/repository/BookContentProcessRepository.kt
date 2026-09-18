@@ -30,8 +30,28 @@ class BookContentProcessRepository(
         dao.maxOrder(bookUrl) + 1
     }
 
+    override suspend fun getById(id: String): BookContentProcess? = withContext(Dispatchers.IO) {
+        dao.getById(id)
+    }
+
+    override suspend fun getRevisionHistory(groupId: String): List<BookContentProcess> =
+        withContext(Dispatchers.IO) {
+            dao.getRevisionHistory(groupId)
+        }
+
+    override suspend fun nextRevisionNumber(groupId: String): Int = withContext(Dispatchers.IO) {
+        dao.maxRevisionNumber(groupId) + 1
+    }
+
     override suspend fun upsert(process: BookContentProcess) = withContext(Dispatchers.IO) {
         dao.upsert(process)
+    }
+
+    override suspend fun replaceActiveRevision(
+        groupId: String,
+        process: BookContentProcess,
+    ) = withContext(Dispatchers.IO) {
+        dao.replaceActiveRevision(groupId, process)
     }
 
     override suspend fun setEnabled(id: String, enabled: Boolean) = withContext(Dispatchers.IO) {

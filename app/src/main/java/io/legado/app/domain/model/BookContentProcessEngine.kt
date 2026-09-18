@@ -7,9 +7,16 @@ import kotlin.math.abs
 
 object BookContentProcessEngine {
 
+    data class AppliedProcessRange(
+        val process: BookContentProcess,
+        val start: Int,
+        val endExclusive: Int,
+    )
+
     data class ApplyResult(
         val text: String,
         val effectiveProcesses: List<BookContentProcess>,
+        val appliedRanges: List<AppliedProcessRange>,
     )
 
     fun apply(
@@ -17,10 +24,11 @@ object BookContentProcessEngine {
         processes: List<BookContentProcess>,
     ): ApplyResult {
         if (content.isEmpty() || processes.isEmpty()) {
-            return ApplyResult(content, emptyList())
+            return ApplyResult(content, emptyList(), emptyList())
         }
         var output = content
         val effectiveProcesses = arrayListOf<BookContentProcess>()
+        val appliedRanges = arrayListOf<AppliedProcessRange>()
         processes
             .filter {
                 it.enabled &&
@@ -76,12 +84,51 @@ object BookContentProcessEngine {
                     else -> output
                 }
                 if (next != output) {
+                    val replacementRange = action.appliedRange(range)
+                    val delta = replacementRange.endExclusive - (range.last + 1)
+                    if (delta != 0) {
+                        appliedRanges.replaceAll { applied ->
+                            when {
+                                applied.endExclusive <= range.first -> applied
+                                applied.start >= range.last + 1 -> applied.copy(
+                                    start = applied.start + delta,
+                                    endExclusive = applied.endExclusive + delta,
+                                )
+                                else -> applied.copy(endExclusive = applied.start)
+                            }
+                        }
+                    }
                     output = next
                     effectiveProcesses.add(process)
+                    appliedRanges += AppliedProcessRange(
+                        process = process,
+                        start = replacementRange.start,
+                        endExclusive = replacementRange.endExclusive,
+                    )
                 }
             }
-        return ApplyResult(output, effectiveProcesses)
+        return ApplyResult(output, effectiveProcesses, appliedRanges)
     }
+
+    private fun TextProcessAction.appliedRange(sourceRange: IntRange): AppliedBounds {
+        val start = when (type) {
+            TextProcessAction.TYPE_INSERT_AFTER -> sourceRange.last + 1
+            else -> sourceRange.first
+        }
+        val length = when (type) {
+            TextProcessAction.TYPE_REPLACE -> normalizeProcessText(replacement.orEmpty()).length
+            TextProcessAction.TYPE_DELETE -> 0
+            TextProcessAction.TYPE_INSERT_BEFORE,
+            TextProcessAction.TYPE_INSERT_AFTER -> normalizeProcessText(text.orEmpty()).length
+            else -> 0
+        }
+        return AppliedBounds(start, start + length)
+    }
+
+    private data class AppliedBounds(
+        val start: Int,
+        val endExclusive: Int,
+    )
 
     /**
      * 在给定正文里解析锚点对应的字符区间，供渲染层把用户划线/高亮应用到该区间。

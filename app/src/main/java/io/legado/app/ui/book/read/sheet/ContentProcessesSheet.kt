@@ -12,13 +12,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -39,6 +37,7 @@ import io.legado.app.ui.widget.components.card.NormalCard
 import io.legado.app.ui.widget.components.modalBottomSheet.AppModalBottomSheet
 import io.legado.app.ui.widget.components.progressIndicator.AppCircularProgressIndicator
 import io.legado.app.ui.widget.components.text.AppText
+import io.legado.app.ui.widget.components.AppTextField
 
 /**
  * 正文处理 Sheet：只承载 AI 改写（净化/重写）等修改正文的记录。
@@ -88,8 +87,6 @@ fun ContentProcessesSheet(
             }
 
             else -> {
-                var viewingItem by remember { mutableStateOf<ContentProcessItemUi?>(null) }
-
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -99,7 +96,9 @@ fun ContentProcessesSheet(
                     items(state.items, key = { it.id }) { item ->
                         ContentProcessItem(
                             item = item,
-                            onClick = { viewingItem = item },
+                            onClick = {
+                                onIntent(ReadBookIntent.OpenContentProcessHistory(item.id))
+                            },
                             onToggle = {
                                 onIntent(
                                     ReadBookIntent.ToggleContentProcess(item.id, !item.enabled)
@@ -112,48 +111,11 @@ fun ContentProcessesSheet(
                     }
                 }
                 Spacer(Modifier.height(24.dp))
-
-                viewingItem?.let { item ->
-                    AppAlertDialog(
-                        data = item,
-                        onDismissRequest = { viewingItem = null },
-                        title = contentProcessTitle(item),
-                        content = {
-                            Column {
-                                AppText(
-                                    text = stringResource(R.string.ai_text_clean_before),
-                                    style = LegadoTheme.typography.labelSmall,
-                                    color = LegadoTheme.colorScheme.onSurfaceVariant,
-                                )
-                                AppText(
-                                    text = item.selectedText,
-                                    modifier = Modifier.padding(top = 2.dp, bottom = 8.dp),
-                                )
-                                AppText(
-                                    text = stringResource(R.string.ai_text_clean_after),
-                                    style = LegadoTheme.typography.labelSmall,
-                                    color = LegadoTheme.colorScheme.onSurfaceVariant,
-                                )
-                                AppText(
-                                    text = item.replacementText.ifEmpty {
-                                        stringResource(R.string.ai_text_clean_delete)
-                                    },
-                                    modifier = Modifier.padding(top = 2.dp),
-                                    color = if (item.replacementText.isEmpty()) {
-                                        LegadoTheme.colorScheme.error
-                                    } else {
-                                        LegadoTheme.colorScheme.onSurface
-                                    },
-                                )
-                            }
-                        },
-                        confirmText = stringResource(R.string.ok),
-                        onConfirm = { viewingItem = null },
-                    )
-                }
             }
         }
     }
+
+    ContentProcessHistoryDialog(state = state, onIntent = onIntent)
 
     val deletingItem = state.deleteItem
     AppAlertDialog(
@@ -165,6 +127,108 @@ fun ContentProcessesSheet(
         onConfirm = { onIntent(ReadBookIntent.ConfirmDeleteContentProcess) },
         dismissText = stringResource(R.string.cancel),
         onDismiss = { onIntent(ReadBookIntent.DismissDeleteContentProcess) },
+    )
+}
+
+@Composable
+private fun ContentProcessHistoryDialog(
+    state: ContentProcessConfigUiState,
+    onIntent: (ReadBookIntent) -> Unit,
+) {
+    val item = state.historyItem ?: return
+    AppAlertDialog(
+        show = true,
+        onDismissRequest = { onIntent(ReadBookIntent.DismissContentProcessHistory) },
+        title = stringResource(R.string.content_process_history),
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppText(
+                    text = stringResource(R.string.ai_text_clean_before),
+                    style = LegadoTheme.typography.labelSmall,
+                    color = LegadoTheme.colorScheme.onSurfaceVariant,
+                )
+                AppText(text = item.selectedText)
+                AppTextField(
+                    value = state.revisionText,
+                    onValueChange = {
+                        onIntent(ReadBookIntent.SetContentProcessRevisionText(it))
+                    },
+                    label = stringResource(R.string.ai_text_clean_after),
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 8,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    MediumTonalButton(
+                        onClick = { onIntent(ReadBookIntent.SaveContentProcessRevision) },
+                        icon = Icons.Default.History,
+                        text = stringResource(R.string.content_process_save_revision),
+                        enabled = !state.isSavingRevision &&
+                            state.revisionText != item.replacementText,
+                    )
+                }
+                AppText(
+                    text = stringResource(R.string.content_process_revision_history),
+                    style = LegadoTheme.typography.labelLargeEmphasized,
+                )
+                state.history.forEach { revision ->
+                    NormalCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        containerColor = LegadoTheme.colorScheme.onSheetContent,
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                AppText(
+                                    text = stringResource(
+                                        R.string.content_process_revision_format,
+                                        revision.revisionNumber,
+                                    ),
+                                    modifier = Modifier.weight(1f),
+                                    style = LegadoTheme.typography.labelMedium,
+                                )
+                                if (revision.isCurrent) {
+                                    AppText(
+                                        text = stringResource(R.string.content_process_current_revision),
+                                        color = LegadoTheme.colorScheme.primary,
+                                        style = LegadoTheme.typography.labelSmall,
+                                    )
+                                } else {
+                                    MediumTonalButton(
+                                        onClick = {
+                                            onIntent(ReadBookIntent.RollbackContentProcess(revision.id))
+                                        },
+                                        icon = Icons.Default.Restore,
+                                        contentDescription = stringResource(R.string.content_process_rollback),
+                                        enabled = !state.isSavingRevision,
+                                    )
+                                }
+                            }
+                            AppText(
+                                text = revision.replacementText.ifEmpty {
+                                    stringResource(R.string.ai_text_clean_delete)
+                                },
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmText = stringResource(R.string.close),
+        onConfirm = { onIntent(ReadBookIntent.DismissContentProcessHistory) },
     )
 }
 
@@ -258,6 +322,7 @@ private fun contentProcessTitle(item: ContentProcessItemUi): String {
     val kind = when (item.kind) {
         BookContentProcess.KIND_AI_CLEAN -> stringResource(R.string.content_process_ai_clean)
         BookContentProcess.KIND_AI_REWRITE -> stringResource(R.string.content_process_ai_rewrite)
+        BookContentProcess.KIND_MANUAL_EDIT -> stringResource(R.string.content_process_manual_edit)
         else -> item.kind
     }
     val action = when (item.actionType) {

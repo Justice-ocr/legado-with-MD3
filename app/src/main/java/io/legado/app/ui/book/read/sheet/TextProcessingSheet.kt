@@ -391,7 +391,6 @@ private fun ContentProcessesPage(
     state: ContentProcessConfigUiState,
     onIntent: (ReadBookIntent) -> Unit,
 ) {
-    var viewingItem by remember { mutableStateOf<ContentProcessItemUi?>(null) }
     val items = remember(state.items, query) {
         state.items.filter {
             query.isBlank() || it.selectedText.contains(query, true) ||
@@ -429,7 +428,9 @@ private fun ContentProcessesPage(
                 items(items, key = { it.id }) { item ->
                     ContentProcessRow(
                         item = item,
-                        onClick = { viewingItem = item },
+                        onClick = {
+                            onIntent(ReadBookIntent.OpenContentProcessHistory(item.id))
+                        },
                         onIntent = onIntent,
                     )
                 }
@@ -437,23 +438,6 @@ private fun ContentProcessesPage(
         }
     }
 
-    viewingItem?.let { item ->
-        AppAlertDialog(
-            data = item,
-            onDismissRequest = { viewingItem = null },
-            title = contentProcessTitle(item),
-            content = {
-                Column {
-                    AppText(stringResource(R.string.ai_text_clean_before))
-                    AppText(item.selectedText, modifier = Modifier.padding(bottom = 8.dp))
-                    AppText(stringResource(R.string.ai_text_clean_after))
-                    AppText(item.replacementText.ifEmpty { stringResource(R.string.ai_text_clean_delete) })
-                }
-            },
-            confirmText = stringResource(R.string.ok),
-            onConfirm = { viewingItem = null },
-        )
-    }
 }
 
 @Composable
@@ -585,6 +569,7 @@ private fun contentProcessTitle(item: ContentProcessItemUi): String {
     val kind = when (item.kind) {
         BookContentProcess.KIND_AI_CLEAN -> stringResource(R.string.content_process_ai_clean)
         BookContentProcess.KIND_AI_REWRITE -> stringResource(R.string.content_process_ai_rewrite)
+        BookContentProcess.KIND_MANUAL_EDIT -> stringResource(R.string.content_process_manual_edit)
         BookContentProcess.KIND_USER_UNDERLINE -> stringResource(R.string.content_process_user_underline)
         BookContentProcess.KIND_USER_HIGHLIGHT -> stringResource(R.string.content_process_user_highlight)
         else -> item.kind

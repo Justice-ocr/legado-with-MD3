@@ -11,6 +11,7 @@ import androidx.compose.runtime.Stable
 data class ContentEditUiState(
     val loading: Boolean = false,
     val text: String = "",
+    val originalText: String = "",
     val title: String = "",
     val cursorOffset: Int = 0,
     val isLocalTxt: Boolean = false,

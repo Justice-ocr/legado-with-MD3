@@ -6,10 +6,12 @@ import io.legado.app.data.entities.BookContentProcess
 import io.legado.app.domain.gateway.BookContentProcessGateway
 import io.legado.app.domain.model.TextProcessAction
 import io.legado.app.domain.model.TextProcessAnchor
+import io.legado.app.domain.usecase.SaveBookContentProcessUseCase
 import io.legado.app.model.ReadBook
 import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonObject
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +33,7 @@ class ReadContentProcessDelegate(
     private val scope: CoroutineScope,
     private val host: Host,
     private val bookContentProcessGateway: BookContentProcessGateway,
+    private val saveBookContentProcessUseCase: SaveBookContentProcessUseCase,
 ) {
 
     interface Host {
@@ -47,7 +50,16 @@ class ReadContentProcessDelegate(
         scope.launch(IO) {
             runCatching {
                 bookContentProcessGateway.getForChapter(book.bookUrl, chapterIndex)
-                    .mapNotNull { it.toContentProcessItemUi() }
+                    .filterNot { it.kind == BookContentProcess.KIND_USER_UNDERLINE ||
+                        it.kind == BookContentProcess.KIND_USER_HIGHLIGHT }
+                    .groupBy { it.revisionGroupId ?: it.id }
+                    .values
+                    .mapNotNull { versions ->
+                        (versions.firstOrNull {
+                            it.enabled && it.status == BookContentProcess.STATUS_ACTIVE
+                        } ?: versions.maxByOrNull { it.revisionNumber })?.toContentProcessItemUi()
+                    }
+                    .sortedBy { it.createdAt }
                     .toImmutableList()
             }.onSuccess { items ->
                 _uiState.update {
@@ -73,6 +85,88 @@ class ReadContentProcessDelegate(
                 reloadCurrentChapter()
                 load()
             }.onFailure { error ->
+                host.showToast(error.localizedMessage ?: context.getString(R.string.error))
+            }
+        }
+    }
+
+    fun openHistory(id: String) {
+        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        scope.launch(IO) {
+            runCatching {
+                val process = requireNotNull(bookContentProcessGateway.getById(id))
+                val groupId = process.revisionGroupId ?: process.id
+                val history = bookContentProcessGateway.getRevisionHistory(groupId)
+                    .mapNotNull { it.toContentProcessItemUi() }
+                    .toImmutableList()
+                val current = history.firstOrNull(ContentProcessItemUi::isCurrent)
+                    ?: history.firstOrNull()
+                current to history
+            }.onSuccess { (current, history) ->
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        historyItem = current,
+                        history = history,
+                        revisionText = current?.replacementText.orEmpty(),
+                        errorMessage = null,
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = error.localizedMessage ?: context.getString(R.string.error),
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissHistory() {
+        _uiState.update {
+            it.copy(historyItem = null, history = persistentListOf(), revisionText = "")
+        }
+    }
+
+    fun setRevisionText(text: String) {
+        _uiState.update { it.copy(revisionText = text) }
+    }
+
+    fun saveRevision() {
+        val current = _uiState.value.historyItem ?: return
+        val replacement = _uiState.value.revisionText
+        _uiState.update { it.copy(isSavingRevision = true) }
+        scope.launch(IO) {
+            saveBookContentProcessUseCase.saveRevision(current.id, replacement)
+                .onSuccess { saved ->
+                    _uiState.update { it.copy(isSavingRevision = false) }
+                    reloadCurrentChapter()
+                    load()
+                    openHistory(saved.id)
+                }
+                .onFailure { error ->
+                    _uiState.update { it.copy(isSavingRevision = false) }
+                    host.showToast(error.localizedMessage ?: context.getString(R.string.error))
+                }
+        }
+    }
+
+    fun rollback(id: String) {
+        val target = _uiState.value.history.firstOrNull { it.id == id } ?: return
+        _uiState.update { it.copy(isSavingRevision = true) }
+        scope.launch(IO) {
+            saveBookContentProcessUseCase.saveRevision(
+                processId = target.id,
+                replacementText = target.replacementText,
+                source = BookContentProcess.SOURCE_ROLLBACK,
+            ).onSuccess { saved ->
+                _uiState.update { it.copy(isSavingRevision = false) }
+                reloadCurrentChapter()
+                load()
+                openHistory(saved.id)
+            }.onFailure { error ->
+                _uiState.update { it.copy(isSavingRevision = false) }
                 host.showToast(error.localizedMessage ?: context.getString(R.string.error))
             }
         }
@@ -149,6 +243,10 @@ class ReadContentProcessDelegate(
             selectedText = anchor.selectedText,
             replacementText = action.replacement ?: action.text.orEmpty(),
             createdAt = createdAt,
+            revisionGroupId = revisionGroupId ?: id,
+            revisionNumber = revisionNumber,
+            source = source,
+            isCurrent = enabled && status == BookContentProcess.STATUS_ACTIVE,
         )
     }
 }

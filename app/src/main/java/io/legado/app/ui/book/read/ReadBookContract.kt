@@ -326,6 +326,10 @@ data class ContentProcessConfigUiState(
     val isLoading: Boolean = false,
     val items: ImmutableList<ContentProcessItemUi> = persistentListOf(),
     val deleteItem: ContentProcessItemUi? = null,
+    val historyItem: ContentProcessItemUi? = null,
+    val history: ImmutableList<ContentProcessItemUi> = persistentListOf(),
+    val revisionText: String = "",
+    val isSavingRevision: Boolean = false,
     val errorMessage: String? = null,
 )
 
@@ -339,6 +343,10 @@ data class ContentProcessItemUi(
     val selectedText: String,
     val replacementText: String,
     val createdAt: Long,
+    val revisionGroupId: String,
+    val revisionNumber: Int,
+    val source: String,
+    val isCurrent: Boolean,
 )
 
 @Stable
@@ -499,6 +507,11 @@ sealed interface ReadBookIntent {
     data class SetChapterSummaryReasoningLevel(val level: AiReasoningLevel) : ReadBookIntent
     data object LoadContentProcesses : ReadBookIntent
     data class ToggleContentProcess(val id: String, val enabled: Boolean) : ReadBookIntent
+    data class OpenContentProcessHistory(val id: String) : ReadBookIntent
+    data object DismissContentProcessHistory : ReadBookIntent
+    data class SetContentProcessRevisionText(val text: String) : ReadBookIntent
+    data object SaveContentProcessRevision : ReadBookIntent
+    data class RollbackContentProcess(val id: String) : ReadBookIntent
     data class RequestDeleteContentProcess(val item: ContentProcessItemUi) : ReadBookIntent
     data object ConfirmDeleteContentProcess : ReadBookIntent
     data object DismissDeleteContentProcess : ReadBookIntent
@@ -732,6 +745,11 @@ sealed interface ReadBookIntent {
 
     data class SelectAiRewritePreset(val presetId: String) : ReadBookIntent
     data class SetAiRewriteTemporaryInstruction(val instruction: String) : ReadBookIntent
+    data class SetAiRewriteText(val text: String) : ReadBookIntent
+    data class SetAiRewriteModel(val modelProfileId: String?) : ReadBookIntent
+    data class SetAiRewriteContextMode(
+        val mode: io.legado.app.domain.model.AiRewriteContextMode,
+    ) : ReadBookIntent
     data class SelectAiRewriteHistory(val artifactId: String) : ReadBookIntent
     data object GenerateAiTextRewrite : ReadBookIntent
     data object RetryAiTextRewrite : ReadBookIntent

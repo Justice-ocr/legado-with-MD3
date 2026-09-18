@@ -45,6 +45,7 @@ import io.legado.app.ui.book.read.sheet.ReaderMoreActionsSheet
 import io.legado.app.ui.book.read.sheet.ShadowSetSheet
 import io.legado.app.ui.book.read.sheet.SimulatedReadingSheet
 import io.legado.app.ui.book.read.sheet.TextProcessingSheet
+import io.legado.app.ui.book.read.sheet.ContentProcessesSheet
 import io.legado.app.ui.book.read.sheet.ToolButtonConfigSheet
 import io.legado.app.ui.book.read.sheet.UnderlineConfigSheet
 import io.legado.app.ui.book.readaloud.player.ReadAloudPlayerEffect
@@ -300,6 +301,12 @@ fun ReadBookScreen(
         effectiveRules = state.effectiveReplaceRules,
         replaceEnabled = state.useReplaceRule,
         contentProcessState = contentProcessState,
+        onIntent = onIntent,
+        onDismissRequest = dismissSheet,
+    )
+    ContentProcessesSheet(
+        show = state.activeSheet is ReadBookSheet.ContentProcesses,
+        state = contentProcessState,
         onIntent = onIntent,
         onDismissRequest = dismissSheet,
     )

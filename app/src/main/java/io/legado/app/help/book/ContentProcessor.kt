@@ -113,6 +113,7 @@ class ContentProcessor private constructor(
         var sameTitleRemoved = false
         var effectiveReplaceRules: ArrayList<ReplaceRule>? = null
         var effectiveContentProcesses: List<BookContentProcess> = emptyList()
+        var appliedContentProcessRanges: List<BookContentProcessEngine.AppliedProcessRange> = emptyList()
         if (content != "null") {
             //去除重复标题
             val fileName = chapter.getFileName("nr")
@@ -219,6 +220,7 @@ class ContentProcessor private constructor(
                     BookContentProcessEngine.apply(mContent, contentProcesses + markings)
                 mContent = applyResult.text
                 effectiveContentProcesses = applyResult.effectiveProcesses
+                appliedContentProcessRanges = applyResult.appliedRanges
             }
         }
         if (includeTitle) {
@@ -245,7 +247,13 @@ class ContentProcessor private constructor(
                 }
             }
         }
-        return BookContent(sameTitleRemoved, contents, effectiveReplaceRules, effectiveContentProcesses)
+        return BookContent(
+            sameTitleRemoved = sameTitleRemoved,
+            textList = contents,
+            effectiveReplaceRules = effectiveReplaceRules,
+            effectiveContentProcesses = effectiveContentProcesses,
+            appliedContentProcessRanges = appliedContentProcessRanges,
+        )
     }
 
     /**

@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import io.legado.app.data.entities.BookContentProcess
 import kotlinx.coroutines.flow.Flow
 
@@ -46,8 +47,51 @@ interface BookContentProcessDao {
     @Query("select coalesce(max(sortOrder), 0) from book_content_processes where bookUrl = :bookUrl")
     suspend fun maxOrder(bookUrl: String): Int
 
+    @Query("select * from book_content_processes where id = :id limit 1")
+    suspend fun getById(id: String): BookContentProcess?
+
+    @Query(
+        """
+        select * from book_content_processes
+        where (revisionGroupId = :groupId or id = :groupId)
+          and status != ${BookContentProcess.STATUS_DELETED}
+        order by revisionNumber desc, createdAt desc
+        """
+    )
+    suspend fun getRevisionHistory(groupId: String): List<BookContentProcess>
+
+    @Query(
+        """
+        select coalesce(max(revisionNumber), 0) from book_content_processes
+        where revisionGroupId = :groupId or id = :groupId
+        """
+    )
+    suspend fun maxRevisionNumber(groupId: String): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(process: BookContentProcess)
+
+    @Query(
+        """
+        update book_content_processes
+        set enabled = 0,
+            status = ${BookContentProcess.STATUS_DISABLED},
+            updatedAt = :updatedAt
+        where (revisionGroupId = :groupId or id = :groupId)
+          and status = ${BookContentProcess.STATUS_ACTIVE}
+        """
+    )
+    suspend fun disableActiveRevision(groupId: String, updatedAt: Long)
+
+    @Transaction
+    suspend fun replaceActiveRevision(
+        groupId: String,
+        process: BookContentProcess,
+        updatedAt: Long = System.currentTimeMillis(),
+    ) {
+        disableActiveRevision(groupId, updatedAt)
+        upsert(process)
+    }
 
     @Query("update book_content_processes set enabled = :enabled, updatedAt = :updatedAt where id = :id")
     suspend fun setEnabled(id: String, enabled: Boolean, updatedAt: Long = System.currentTimeMillis())

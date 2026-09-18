@@ -9,6 +9,7 @@ import io.legado.app.domain.model.AiMessage
 import io.legado.app.domain.model.AiMessageRole
 import io.legado.app.domain.model.AiPromptTemplate
 import io.legado.app.domain.model.AiReasoningLevel
+import io.legado.app.domain.model.AiRewriteContextMode
 import io.legado.app.domain.model.AiTaskPresetConfig
 import io.legado.app.domain.model.AiTaskType
 import io.legado.app.domain.model.AiToolContext
@@ -40,6 +41,8 @@ class AiTextFactoryUseCase(
         val skipCache: Boolean = false,
         val artifactContentHash: String? = null,
         val reasoningLevel: AiReasoningLevel = AiReasoningLevel.AUTO,
+        val modelProfileIdOverride: String? = null,
+        val contextMode: AiRewriteContextMode = AiRewriteContextMode.WITH_CONTEXT,
     )
 
     sealed interface StreamEvent {
@@ -54,10 +57,10 @@ class AiTextFactoryUseCase(
     fun observeTaskById(taskId: String) = aiTaskManager.observeTask(taskId)
 
     suspend fun start(request: Request): String {
-        val preset = resolvePreset(request.taskType) ?: error("No AI model configured")
+        val preset = resolvePreset(request) ?: error("No AI model configured")
         val systemPrompt = buildSystemPrompt(preset, request.userInstruction)
         val userInput =
-            buildUserInput(request.chapterTitle, request.inputText, request.referenceText)
+            buildUserInput(request.chapterTitle, request.inputText, request.referenceText, request.contextMode)
         val contentHash = request.artifactContentHash ?: MD5Utils.md5Encode(userInput)
         val promptHash = MD5Utils.md5Encode(
             systemPrompt + AiToolAwareGenerationUseCase.CACHE_PROMPT_VERSION,
@@ -92,13 +95,14 @@ class AiTextFactoryUseCase(
             require(request.inputText.isNotBlank()) { "Input text is empty" }
             require(request.userInstruction.isNotBlank()) { "Instruction is empty" }
 
-            val preset = resolvePreset(request.taskType)
+            val preset = resolvePreset(request)
                 ?: error("No AI model configured")
             val systemPrompt = buildSystemPrompt(preset, request.userInstruction)
             val userInput = buildUserInput(
                 chapterTitle = request.chapterTitle,
                 text = request.inputText,
                 referenceText = request.referenceText,
+                contextMode = request.contextMode,
             )
             val contentHash = request.artifactContentHash ?: MD5Utils.md5Encode(userInput)
             val promptHash = MD5Utils.md5Encode(
@@ -131,6 +135,7 @@ class AiTextFactoryUseCase(
                         chapterTitle = request.chapterTitle,
                         text = chunk.content,
                         referenceText = request.referenceText,
+                        contextMode = request.contextMode,
                     ),
                     toolContext = toolContext,
                     reasoningLevel = request.reasoningLevel,
@@ -173,13 +178,14 @@ class AiTextFactoryUseCase(
         require(request.inputText.isNotBlank()) { "Input text is empty" }
         require(request.userInstruction.isNotBlank()) { "Instruction is empty" }
 
-        val preset = resolvePreset(request.taskType)
+        val preset = resolvePreset(request)
             ?: error("No AI model configured")
         val systemPrompt = buildSystemPrompt(preset, request.userInstruction)
         val userInput = buildUserInput(
             chapterTitle = request.chapterTitle,
             text = request.inputText,
             referenceText = request.referenceText,
+            contextMode = request.contextMode,
         )
         val contentHash = request.artifactContentHash ?: MD5Utils.md5Encode(userInput)
         val promptHash = MD5Utils.md5Encode(
@@ -231,6 +237,7 @@ class AiTextFactoryUseCase(
                         chapterTitle = request.chapterTitle,
                         text = chunk.content,
                         referenceText = request.referenceText,
+                        contextMode = request.contextMode,
                     ),
                     toolContext = toolContext,
                     reasoningLevel = request.reasoningLevel,
@@ -269,12 +276,18 @@ class AiTextFactoryUseCase(
         emit(StreamEvent.Done(output, reasoning))
     }.flowOn(Dispatchers.IO)
 
-    private suspend fun resolvePreset(taskType: String): AiTaskPresetConfig? {
-        return aiProfileGateway.getTaskPreset(taskType)
+    private suspend fun resolvePreset(request: Request): AiTaskPresetConfig? {
+        val preset = aiProfileGateway.getTaskPreset(request.taskType)
             ?: aiProfileGateway.getTaskPreset(AiTaskType.TEXT_FACTORY)
             ?: aiProfileGateway.getTaskPreset(AiTaskType.CHAT)
             ?: aiProfileGateway.getTaskPreset(AiTaskType.SUMMARIZE_CHAPTER)
             ?: aiProfileGateway.getTaskPreset(AiTaskType.TRANSLATE_CHAPTER)
+            ?: return null
+        val overrideId = request.modelProfileIdOverride?.takeIf { it.isNotBlank() }
+        val overrideModel = overrideId?.let {
+            aiProfileGateway.getModelConfig(it) ?: error("Selected AI model is unavailable")
+        }
+        return overrideModel?.let { preset.copy(model = it) } ?: preset
     }
 
     private fun buildSystemPrompt(
@@ -301,14 +314,16 @@ class AiTextFactoryUseCase(
         chapterTitle: String,
         text: String,
         referenceText: String,
+        contextMode: AiRewriteContextMode,
     ): String {
+        val includeContext = contextMode == AiRewriteContextMode.WITH_CONTEXT
         return buildString {
-            if (chapterTitle.isNotBlank()) {
+            if (includeContext && chapterTitle.isNotBlank()) {
                 append("Chapter title: ")
                 append(chapterTitle)
                 append("\n\n")
             }
-            if (referenceText.isNotBlank()) {
+            if (includeContext && referenceText.isNotBlank()) {
                 append("Reference excerpts from other chapters. Use them only for continuity, names, relationships, timeline, and tone. Do not rewrite or summarize these excerpts:\n")
                 append(referenceText)
                 append("\n\n")
@@ -343,6 +358,7 @@ class AiTextFactoryUseCase(
                         ?: preset.params.reasoningLevel,
                 ),
                 toolContext = toolContext,
+                enableReadOnlyTools = requestContextAllowsTools(toolContext),
             )
         )
     }
@@ -369,6 +385,7 @@ class AiTextFactoryUseCase(
                         ?: preset.params.reasoningLevel,
                 ),
                 toolContext = toolContext,
+                enableReadOnlyTools = requestContextAllowsTools(toolContext),
             )
         ).collect { event ->
             when (event) {
@@ -387,13 +404,16 @@ class AiTextFactoryUseCase(
         }
     }
 
-    private fun Request.toToolContext(): AiToolContext {
+    private fun Request.toToolContext(): AiToolContext? {
+        if (contextMode == AiRewriteContextMode.SELECTION_ONLY) return null
         return AiToolContext(
             bookUrl = bookUrl,
             chapterIndex = chapterIndex,
             chapterTitle = chapterTitle.takeIf { it.isNotBlank() },
         )
     }
+
+    private fun requestContextAllowsTools(toolContext: AiToolContext?): Boolean = toolContext != null
 
     private fun Request.buildArtifactId(
         contentHash: String,

@@ -130,6 +130,7 @@ sealed interface ReaderElement {
     data class Action(
         override val bounds: ReaderRect,
         val key: String,
+        val colorArgb: Int? = null,
     ) : ReaderElement
 
     data class Spacer(

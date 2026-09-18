@@ -2,6 +2,7 @@ package io.legado.app.ui.book.read
 
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.repository.ReadSettingsRepository
+import io.legado.app.domain.usecase.SaveBookContentProcessUseCase
 import io.legado.app.feature.reader.core.navigation.ReaderPageContext
 import io.legado.app.help.book.BookHelp
 import io.legado.app.help.book.ContentProcessor
@@ -29,6 +30,7 @@ class ReadContentEditDelegate(
     private val scope: CoroutineScope,
     private val host: Host,
     private val readSettingsRepository: ReadSettingsRepository,
+    private val saveBookContentProcessUseCase: SaveBookContentProcessUseCase,
 ) {
 
     interface Host {
@@ -56,6 +58,7 @@ class ReadContentEditDelegate(
         _uiState.update {
             it.copy(
                 text = "",
+                originalText = "",
                 title = "",
                 cursorOffset = 0,
                 loading = false,
@@ -89,6 +92,7 @@ class ReadContentEditDelegate(
             _uiState.update {
                 it.copy(
                     text = text,
+                    originalText = text,
                     title = title,
                     cursorOffset = cursorOffset,
                     isLocalTxt = book.isLocalTxt,
@@ -104,7 +108,28 @@ class ReadContentEditDelegate(
             val book = ReadBook.book ?: return@async
             val chapter = host.findChapter(book.bookUrl, ReadBook.durChapterIndex)
                 ?: return@async
-            BookHelp.saveText(book, chapter, content, saveToSource)
+            if (saveToSource) {
+                BookHelp.saveText(book, chapter, content, true)
+            } else {
+                val original = _uiState.value.originalText
+                val prefix = commonPrefixLength(original, content)
+                val suffix = commonSuffixLength(original, content, prefix)
+                val selected = original.substring(prefix, original.length - suffix)
+                val replacement = content.substring(prefix, content.length - suffix)
+                if (selected.isNotBlank() && selected != replacement) {
+                    saveBookContentProcessUseCase.saveReplacement(
+                        bookUrl = book.bookUrl,
+                        chapterIndex = chapter.index,
+                        chapterPosition = prefix,
+                        selectedText = selected,
+                        contextBefore = original.substring(0, prefix).takeLast(64),
+                        contextAfter = original.substring(original.length - suffix).take(64),
+                        replacementText = replacement,
+                        kind = io.legado.app.data.entities.BookContentProcess.KIND_MANUAL_EDIT,
+                        source = io.legado.app.data.entities.BookContentProcess.SOURCE_USER_EDIT,
+                    ).getOrThrow()
+                }
+            }
             ReadBook.loadContent(ReadBook.durChapterIndex, resetPageOffset = false)
         }
     }
@@ -133,6 +158,7 @@ class ReadContentEditDelegate(
             _uiState.update {
                 it.copy(
                     text = text,
+                    originalText = text,
                     cursorOffset = cursorOffset,
                     loading = false,
                 )
@@ -176,5 +202,21 @@ class ReadContentEditDelegate(
     private fun clearPendingLocation() {
         pendingCursorOffset = null
         pendingAnchor = null
+    }
+
+    private fun commonPrefixLength(left: String, right: String): Int {
+        val limit = minOf(left.length, right.length)
+        var index = 0
+        while (index < limit && left[index] == right[index]) index++
+        return index
+    }
+
+    private fun commonSuffixLength(left: String, right: String, prefix: Int): Int {
+        var length = 0
+        val max = minOf(left.length, right.length) - prefix
+        while (length < max && left[left.length - length - 1] == right[right.length - length - 1]) {
+            length++
+        }
+        return length
     }
 }

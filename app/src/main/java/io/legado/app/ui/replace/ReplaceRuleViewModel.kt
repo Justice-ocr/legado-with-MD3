@@ -487,6 +487,10 @@ class ReplaceRuleViewModel(
             selectedText = anchor.selectedText,
             replacementText = action.replacement ?: action.text.orEmpty(),
             createdAt = createdAt,
+            revisionGroupId = revisionGroupId ?: id,
+            revisionNumber = revisionNumber,
+            source = source,
+            isCurrent = enabled && status == BookContentProcess.STATUS_ACTIVE,
         )
     }
 

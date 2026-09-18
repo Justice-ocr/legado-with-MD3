@@ -48,8 +48,9 @@ class SaveBookContentProcessUseCase(
                 TextProcessAction.replace(normalizedReplacement)
             }
             val now = System.currentTimeMillis()
+            val processId = Uuid.random().toString()
             val process = BookContentProcess(
-                id = Uuid.random().toString(),
+                id = processId,
                 bookUrl = bookUrl,
                 chapterIndex = chapterIndex,
                 kind = kind,
@@ -59,6 +60,10 @@ class SaveBookContentProcessUseCase(
                 actionJson = GSON.toJson(action),
                 source = source,
                 aiArtifactId = aiArtifactId,
+                revisionGroupId = processId,
+                revisionNumber = 1,
+                originalText = normalizedSelectedText,
+                revisedText = normalizedReplacement,
                 sourceContentHash = sourceContentHash,
                 sortOrder = bookContentProcessGateway.nextOrder(bookUrl),
                 createdAt = now,
@@ -66,6 +71,55 @@ class SaveBookContentProcessUseCase(
             )
             bookContentProcessGateway.upsert(process)
             process
+        }
+    }
+
+    suspend fun saveRevision(
+        processId: String,
+        replacementText: String,
+        source: String = BookContentProcess.SOURCE_USER_EDIT,
+    ): Result<BookContentProcess> = withContext(Dispatchers.IO) {
+        runCatching {
+            val selected = requireNotNull(bookContentProcessGateway.getById(processId)) {
+                "Content process not found"
+            }
+            val groupId = selected.revisionGroupId ?: selected.id
+            val history = bookContentProcessGateway.getRevisionHistory(groupId)
+            val active = history.firstOrNull {
+                it.enabled && it.status == BookContentProcess.STATUS_ACTIVE
+            } ?: selected
+            val normalizedReplacement = BookContentProcessEngine.normalizeProcessText(replacementText)
+            val activeAction = GSON.fromJsonObject<TextProcessAction>(active.actionJson).getOrThrow()
+            val activeReplacement = when (activeAction.type) {
+                TextProcessAction.TYPE_REPLACE -> activeAction.replacement.orEmpty()
+                TextProcessAction.TYPE_DELETE -> ""
+                else -> activeAction.text.orEmpty()
+            }.let(BookContentProcessEngine::normalizeProcessText)
+            require(activeReplacement != normalizedReplacement) { "Replacement did not change text" }
+
+            val action = if (normalizedReplacement.isEmpty()) {
+                TextProcessAction.delete()
+            } else {
+                TextProcessAction.replace(normalizedReplacement)
+            }
+            val now = System.currentTimeMillis()
+            val revision = active.copy(
+                id = Uuid.random().toString(),
+                actionJson = GSON.toJson(action),
+                source = source,
+                revisionGroupId = groupId,
+                parentProcessId = active.id,
+                revisionNumber = bookContentProcessGateway.nextRevisionNumber(groupId),
+                originalText = active.originalText
+                    ?: GSON.fromJsonObject<TextProcessAnchor>(active.anchorJson).getOrThrow().selectedText,
+                revisedText = normalizedReplacement,
+                enabled = true,
+                status = BookContentProcess.STATUS_ACTIVE,
+                createdAt = now,
+                updatedAt = now,
+            )
+            bookContentProcessGateway.replaceActiveRevision(groupId, revision)
+            revision
         }
     }
 }

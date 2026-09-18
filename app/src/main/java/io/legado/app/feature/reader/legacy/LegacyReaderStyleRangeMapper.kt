@@ -3,6 +3,7 @@ package io.legado.app.feature.reader.legacy
 import io.legado.app.data.entities.BookContentProcess
 import io.legado.app.data.entities.HighlightRule
 import io.legado.app.domain.model.BookContentProcessEngine
+import io.legado.app.domain.model.TextProcessAction
 import io.legado.app.domain.model.TextProcessAnchor
 import io.legado.app.domain.model.TextProcessStyle
 import io.legado.app.feature.reader.core.model.ReaderTextBackgroundImage
@@ -26,6 +27,7 @@ object LegacyReaderStyleRangeMapper {
         source: ReaderChapterSource,
         rules: List<HighlightRule>,
         processes: List<BookContentProcess>,
+        appliedRanges: List<BookContentProcessEngine.AppliedProcessRange>,
     ): List<ReaderStyleRange> {
         val result = mutableListOf<ReaderStyleRange>()
         val bodyText = semanticBodyText(source)
@@ -65,6 +67,42 @@ object LegacyReaderStyleRangeMapper {
                     priority = 10_000 + index,
                 )
             }
+        appliedRanges.forEachIndexed { index, applied ->
+            val process = applied.process
+            val action = GSON.fromJsonObject<TextProcessAction>(process.actionJson).getOrNull()
+                ?: return@forEachIndexed
+            val revisedText = process.revisedText ?: when (action.type) {
+                TextProcessAction.TYPE_REPLACE -> action.replacement.orEmpty()
+                TextProcessAction.TYPE_DELETE -> ""
+                else -> action.text.orEmpty()
+            }
+            if (revisedText.isEmpty()) return@forEachIndexed
+            val range = BookContentProcessEngine.resolveRange(
+                bodyText,
+                TextProcessAnchor(
+                    chapterIndex = process.chapterIndex ?: 0,
+                    chapterPosition = applied.start,
+                    selectedText = revisedText,
+                    normalizedTextHash = "",
+                ),
+            ) ?: return@forEachIndexed
+            result += ReaderStyleRange(
+                start = range.first,
+                endExclusive = range.last + 1,
+                target = ReaderStyleTarget.BODY,
+                style = ReaderCharacterStyle(
+                    colorArgb = ReadBookConfig.textAccentColor,
+                    underline = ReaderUnderline(
+                        mode = 1,
+                        colorArgb = ReadBookConfig.textAccentColor,
+                        widthPx = 1f.dpToPx(),
+                        offsetPx = 2f.dpToPx(),
+                    ),
+                    markingId = CONTENT_PROCESS_READER_ID_PREFIX + process.id,
+                ),
+                priority = 20_000 + index,
+            )
+        }
         return result
     }
 
@@ -175,3 +213,5 @@ object LegacyReaderStyleRangeMapper {
     private fun backgroundImageSize(path: String): Pair<Int, Int> =
         ReaderTextBackgroundLoader.dimensions(path)
 }
+
+const val CONTENT_PROCESS_READER_ID_PREFIX = "content-process:"

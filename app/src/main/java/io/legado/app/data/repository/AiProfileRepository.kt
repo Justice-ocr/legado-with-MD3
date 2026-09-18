@@ -50,6 +50,12 @@ class AiProfileRepository(
         aiProfileDao.getDefaultPreset(taskType)?.toConfig()
     }
 
+    override suspend fun getModelConfig(id: String): AiModelConfig? = withContext(Dispatchers.IO) {
+        val model = aiProfileDao.getModel(id) ?: return@withContext null
+        val provider = aiProfileDao.getProvider(model.providerId) ?: return@withContext null
+        model.toConfig(provider)
+    }
+
     override suspend fun getProviderApiKey(providerId: String): String = withContext(Dispatchers.IO) {
         aiProfileDao.getProvider(providerId)
             ?.apiKey

@@ -31,10 +31,12 @@ import androidx.compose.ui.unit.dp
 import io.legado.app.R
 import io.legado.app.domain.model.AiMessagePart
 import io.legado.app.domain.model.AiMessageRole
+import io.legado.app.domain.model.AiRewriteContextMode
 import io.legado.app.ui.ai.AiReasoningModeButton
 import io.legado.app.ui.ai.chat.AiChatMessageUi
 import io.legado.app.ui.ai.chat.AiGeneratedMessageContent
 import io.legado.app.ui.book.read.AiRewriteHistoryUi
+import io.legado.app.ui.book.read.AiRewriteModelUi
 import io.legado.app.ui.book.read.AiRewritePresetUi
 import io.legado.app.ui.book.read.AiTextRewriteUiState
 import io.legado.app.ui.book.read.ReadBookIntent
@@ -172,6 +174,41 @@ fun AiTextRewriteSheet(
 
                         Spacer(Modifier.height(12.dp))
 
+                        AppText(
+                            text = stringResource(R.string.ai_rewrite_model),
+                            style = LegadoTheme.typography.titleSmall,
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            state.availableModels.forEach { model ->
+                                RewriteModelOption(
+                                    model = model,
+                                    selected = model.id == state.selectedModelProfileId,
+                                    enabled = !state.isLoading && !state.isApplying,
+                                    onSelect = { onIntent(ReadBookIntent.SetAiRewriteModel(model.id)) },
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+                        AppText(
+                            text = stringResource(R.string.ai_rewrite_context_mode),
+                            style = LegadoTheme.typography.titleSmall,
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            RewriteContextOption(
+                                text = stringResource(R.string.ai_rewrite_context_with_context),
+                                selected = state.contextMode == AiRewriteContextMode.WITH_CONTEXT,
+                                enabled = !state.isLoading && !state.isApplying,
+                                onSelect = { onIntent(ReadBookIntent.SetAiRewriteContextMode(AiRewriteContextMode.WITH_CONTEXT)) },
+                            )
+                            RewriteContextOption(
+                                text = stringResource(R.string.ai_rewrite_context_selection_only),
+                                selected = state.contextMode == AiRewriteContextMode.SELECTION_ONLY,
+                                enabled = !state.isLoading && !state.isApplying,
+                                onSelect = { onIntent(ReadBookIntent.SetAiRewriteContextMode(AiRewriteContextMode.SELECTION_ONLY)) },
+                            )
+                        }
+
                         AppTextField(
                             value = state.temporaryInstruction,
                             onValueChange = {
@@ -232,6 +269,18 @@ fun AiTextRewriteSheet(
                                         showHeader = false,
                                         reasoningAutoExpandWhileStreaming = false,
                                         modifier = Modifier.padding(16.dp),
+                                    )
+                                }
+                                if (!state.isLoading && state.rewrittenText.isNotBlank()) {
+                                    Spacer(Modifier.height(12.dp))
+                                    AppTextField(
+                                        value = state.rewrittenText,
+                                        onValueChange = { onIntent(ReadBookIntent.SetAiRewriteText(it)) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        enabled = !state.isApplying,
+                                        label = stringResource(R.string.ai_rewrite_edit_result),
+                                        minLines = 6,
+                                        maxLines = 16,
                                     )
                                 }
                             }
@@ -304,6 +353,40 @@ fun AiTextRewriteSheet(
                 Spacer(Modifier.height(20.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun RewriteModelOption(
+    model: AiRewriteModelUi,
+    selected: Boolean,
+    enabled: Boolean,
+    onSelect: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AppRadioButton(selected = selected, onClick = onSelect, enabled = enabled)
+        AppText(text = model.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun RewriteContextOption(
+    text: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onSelect: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AppRadioButton(selected = selected, onClick = onSelect, enabled = enabled)
+        AppText(text = text)
     }
 }
 

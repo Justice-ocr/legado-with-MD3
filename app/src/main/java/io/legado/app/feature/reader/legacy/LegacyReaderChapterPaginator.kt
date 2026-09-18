@@ -14,6 +14,8 @@ import io.legado.app.feature.reader.core.layout.ReaderPaginationSession
 import io.legado.app.feature.reader.core.layout.ReaderTextAlignment
 import io.legado.app.feature.reader.core.layout.ReaderTextShaperFactory
 import io.legado.app.feature.reader.core.model.ReaderPage
+import io.legado.app.feature.reader.core.model.ReaderElement
+import io.legado.app.feature.reader.core.model.ReaderRect
 import io.legado.app.feature.reader.core.source.ReaderChapterSource
 import io.legado.app.feature.reader.platform.AndroidReaderHtmlSourceResolver
 import io.legado.app.feature.reader.platform.AndroidReaderTextShaper
@@ -137,6 +139,7 @@ object LegacyReaderChapterPaginator {
             source = layoutSource,
             rules = highlightRules,
             processes = content.effectiveContentProcesses,
+            appliedRanges = content.appliedContentProcessRanges,
         )
         val bodyPaint = paginationStyle.bodyPaint
         val titlePaint = paginationStyle.titlePaint
@@ -245,8 +248,55 @@ object LegacyReaderChapterPaginator {
             return LegacyReaderChapterPaginationResult.Unsupported(measured.reason)
         }
         // 测量与分页现在交错进行，"pagination.pages" 只剩收尾（章末页）的开销，两者之和不变。
-        val pages = ReaderPerfTrace.section("pagination.pages") { paginationSession.finish() }
+        val pages = ReaderPerfTrace.section("pagination.pages") {
+            paginationSession.finish().withContentProcessHistoryMarkers(content.appliedContentProcessRanges)
+        }
         return LegacyReaderChapterPaginationResult.Success(pages)
+    }
+}
+
+private fun List<ReaderPage>.withContentProcessHistoryMarkers(
+    appliedRanges: List<io.legado.app.domain.model.BookContentProcessEngine.AppliedProcessRange>,
+): List<ReaderPage> {
+    val lastOccurrence = linkedMapOf<String, Pair<Int, ReaderElement.Text>>()
+    forEachIndexed { pageIndex, page ->
+        page.elements.filterIsInstance<ReaderElement.Text>().forEach { element ->
+            val actionKey = element.markingId
+                ?.takeIf { it.startsWith(CONTENT_PROCESS_READER_ID_PREFIX) }
+                ?: return@forEach
+            lastOccurrence[actionKey] = pageIndex to element
+        }
+    }
+    appliedRanges.filter { it.start == it.endExclusive }.forEach { applied ->
+        val nearest = flatMapIndexed { pageIndex, page ->
+            page.elements.filterIsInstance<ReaderElement.Text>().map { pageIndex to it }
+        }.minByOrNull { (_, element) -> kotlin.math.abs(element.chapterPosition - applied.start) }
+        if (nearest != null) {
+            lastOccurrence[CONTENT_PROCESS_READER_ID_PREFIX + applied.process.id] = nearest
+        }
+    }
+    if (lastOccurrence.isEmpty()) return this
+    val additions = lastOccurrence.entries.groupBy({ it.value.first }, { it.key to it.value.second })
+    return mapIndexed { pageIndex, page ->
+        val markers = additions[pageIndex].orEmpty().map { (key, element) ->
+            val paragraphTail = page.elements
+                .filterIsInstance<ReaderElement.Text>()
+                .filter {
+                    it.paragraphIndex == element.paragraphIndex &&
+                        it.chapterPosition >= element.chapterPosition
+                }
+                .maxByOrNull { it.chapterPosition } ?: element
+            val size = (paragraphTail.bounds.height * 0.48f).coerceAtLeast(10f.dpToPx())
+            val left = (paragraphTail.bounds.right + 3f.dpToPx())
+                .coerceAtMost((page.widthPx - size - 2f.dpToPx()).coerceAtLeast(0f))
+            val top = (paragraphTail.baselinePx - size).coerceAtLeast(paragraphTail.bounds.top)
+            ReaderElement.Action(
+                bounds = ReaderRect(left, top, left + size, top + size),
+                key = key,
+                colorArgb = ReadBookConfig.textAccentColor,
+            )
+        }
+        if (markers.isEmpty()) page else page.copy(elements = page.elements + markers)
     }
 }
 

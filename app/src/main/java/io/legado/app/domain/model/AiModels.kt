@@ -166,6 +166,11 @@ data class AiTaskPresetConfig(
     val runtimeOptions: AiTaskRuntimeOptions = AiTaskRuntimeOptions()
 )
 
+enum class AiRewriteContextMode {
+    WITH_CONTEXT,
+    SELECTION_ONLY,
+}
+
 @Keep
 data class AiProfileDraft(
     val providerId: String? = null,
@@ -360,6 +365,7 @@ data class AiGenerateRequest(
     val params: AiGenerationParams = AiGenerationParams(),
     val tools: List<AiToolDefinition> = emptyList(),
     val toolContext: AiToolContext? = null,
+    val enableReadOnlyTools: Boolean = true,
 )
 
 @Keep

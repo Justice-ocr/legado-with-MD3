@@ -3,6 +3,7 @@ package io.legado.app.data.entities
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import androidx.room.ColumnInfo
 
 @Entity(
     tableName = "book_content_processes",
@@ -10,6 +11,7 @@ import androidx.room.PrimaryKey
         Index(value = ["bookUrl", "chapterIndex", "enabled", "sortOrder"]),
         Index(value = ["bookUrl", "kind"]),
         Index(value = ["aiArtifactId"]),
+        Index(value = ["revisionGroupId", "revisionNumber"]),
     ]
 )
 data class BookContentProcess(
@@ -25,6 +27,12 @@ data class BookContentProcess(
     val styleJson: String? = null,
     val source: String = SOURCE_USER,
     val aiArtifactId: String? = null,
+    val revisionGroupId: String? = null,
+    val parentProcessId: String? = null,
+    @ColumnInfo(defaultValue = "1")
+    val revisionNumber: Int = 1,
+    val originalText: String? = null,
+    val revisedText: String? = null,
     val sourceContentHash: String? = null,
     val enabled: Boolean = true,
     val sortOrder: Int = 0,
@@ -36,6 +44,7 @@ data class BookContentProcess(
     companion object {
         const val KIND_AI_CLEAN = "ai_clean"
         const val KIND_AI_REWRITE = "ai_rewrite"
+        const val KIND_MANUAL_EDIT = "manual_edit"
 
         // 用户划线/高亮标记：book_marks 无 kind 列（样式即类型），渲染桥从 styleJson
         // 推导出这两个合成 kind 之一，供引擎/渲染层识别「这是标记、别改文本」。
@@ -51,6 +60,9 @@ data class BookContentProcess(
 
         const val SOURCE_USER = "user"
         const val SOURCE_AI = "ai"
+        const val SOURCE_AI_MANUAL = "ai_manual"
+        const val SOURCE_USER_EDIT = "user_edit"
+        const val SOURCE_ROLLBACK = "rollback"
 
         const val STATUS_DRAFT = 0
         const val STATUS_ACTIVE = 1

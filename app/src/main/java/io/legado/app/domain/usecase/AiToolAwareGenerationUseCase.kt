@@ -75,6 +75,7 @@ class AiToolAwareGenerationUseCase(
     }
 
     private fun AiGenerateRequest.withReadOnlyTools(): AiGenerateRequest {
+        if (!enableReadOnlyTools) return this.copy(tools = emptyList(), toolContext = null)
         val readOnlyTools = aiToolGateway.availableTools()
             .filterNot { aiToolGateway.requiresConfirmation(it.name) }
         if (readOnlyTools.isEmpty()) return this

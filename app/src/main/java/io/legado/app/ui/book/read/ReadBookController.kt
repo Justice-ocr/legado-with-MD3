@@ -28,6 +28,7 @@ import io.legado.app.data.entities.BookProgress
 import io.legado.app.data.repository.HighlightRuleRepository
 import io.legado.app.feature.reader.core.gesture.ReaderTapAction
 import io.legado.app.feature.reader.core.model.ReaderElement
+import io.legado.app.feature.reader.legacy.CONTENT_PROCESS_READER_ID_PREFIX
 import io.legado.app.feature.reader.core.model.ReaderImageCachePolicy
 import io.legado.app.feature.reader.core.model.ReaderPage
 import io.legado.app.feature.reader.core.model.ReaderPageId
@@ -547,6 +548,10 @@ class ReadBookController(
 
     fun onComposeReaderElementClick(element: ReaderElement): Boolean = when (element) {
         is ReaderElement.Text -> when {
+            element.markingId?.startsWith(CONTENT_PROCESS_READER_ID_PREFIX) == true -> {
+                openContentProcessHistory(element.markingId)
+                true
+            }
             element.markingId != null -> { onMarkingClick(element.markingId); true }
             element.link != null -> {
                 activity.startActivity(Intent(activity, OpenUrlConfirmActivity::class.java).putExtra("uri", element.link))
@@ -556,7 +561,12 @@ class ReadBookController(
         }
         is ReaderElement.Image -> handleComposeImageClick(element)
         is ReaderElement.Review -> { activity.toastOnUi("Button Pressed!"); true }
-        is ReaderElement.Action -> { activity.toastOnUi("Button Pressed!"); true }
+        is ReaderElement.Action -> if (element.key.startsWith(CONTENT_PROCESS_READER_ID_PREFIX)) {
+            openContentProcessHistory(element.key)
+            true
+        } else {
+            false
+        }
         is ReaderElement.Spacer -> false
         is ReaderElement.ParagraphMarker -> false
         is ReaderElement.Rule -> false
@@ -1610,6 +1620,14 @@ class ReadBookController(
 
     fun onMarkingClick(markingId: String) {
         viewModel.onIntent(ReadBookIntent.OpenQuickMarkingEdit(markingId))
+    }
+
+    private fun openContentProcessHistory(readerId: String) {
+        viewModel.onIntent(
+            ReadBookIntent.OpenContentProcessHistory(
+                readerId.removePrefix(CONTENT_PROCESS_READER_ID_PREFIX)
+            )
+        )
     }
 
     fun oldClickImg(src: String): Boolean {

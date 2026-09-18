@@ -8,8 +8,10 @@ import io.legado.app.data.entities.Book
 import io.legado.app.data.entities.BookChapter
 import io.legado.app.data.entities.BookContentProcess
 import io.legado.app.domain.gateway.AiArtifactGateway
+import io.legado.app.domain.gateway.AiProfileGateway
 import io.legado.app.domain.gateway.AiPromptPresetGateway
 import io.legado.app.domain.model.AiReasoningLevel
+import io.legado.app.domain.model.AiRewriteContextMode
 import io.legado.app.domain.model.AiTaskType
 import io.legado.app.domain.usecase.AiTextFactoryUseCase
 import io.legado.app.domain.usecase.CleanSelectedTextUseCase
@@ -29,6 +31,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,6 +55,7 @@ class ReadAiDelegate(
     private val generateChapterSummaryUseCase: GenerateChapterSummaryUseCase,
     private val cleanSelectedTextUseCase: CleanSelectedTextUseCase,
     private val aiTextFactoryUseCase: AiTextFactoryUseCase,
+    private val aiProfileGateway: AiProfileGateway,
     private val saveBookContentProcessUseCase: SaveBookContentProcessUseCase,
     private val aiArtifactGateway: AiArtifactGateway,
     private val aiPromptPresetGateway: AiPromptPresetGateway,
@@ -547,6 +551,15 @@ class ReadAiDelegate(
             approximatePosition = chapterPosition,
         )
         val presets = loadAiRewritePresets()
+        val availableModels = withContext(IO) {
+            aiProfileGateway.observeModels().first()
+        }.filter { it.enabled }
+            .map { AiRewriteModelUi(it.id, it.displayName.ifBlank { it.modelId }) }
+        val defaultModelProfileId = withContext(IO) {
+            aiProfileGateway.getTaskPreset(AiTaskType.REWRITE_TEXT)
+                ?: aiProfileGateway.getTaskPreset(AiTaskType.TEXT_FACTORY)
+                ?: aiProfileGateway.getTaskPreset(AiTaskType.CHAT)
+        }?.model?.id
         val selectedPresetId = _uiState.value.aiTextRewrite.selectedPresetId
             .takeIf { id -> presets.any { it.id == id } }
             ?: presets.firstOrNull()?.id.orEmpty()
@@ -576,6 +589,9 @@ class ReadAiDelegate(
                         chapterTitle = request.chapterTitle,
                         selectedPresetId = selectedPresetId,
                         presets = presets.toImmutableList(),
+                        availableModels = availableModels.toImmutableList(),
+                        selectedModelProfileId = it.aiTextRewrite.selectedModelProfileId
+                            ?: defaultModelProfileId,
                     )
                 } else {
                     AiTextRewriteUiState(
@@ -585,6 +601,8 @@ class ReadAiDelegate(
                         originalText = request.originalText,
                         selectedPresetId = selectedPresetId,
                         presets = presets.toImmutableList(),
+                        availableModels = availableModels.toImmutableList(),
+                        selectedModelProfileId = defaultModelProfileId,
                     )
                 },
             )
@@ -615,6 +633,29 @@ class ReadAiDelegate(
         }
     }
 
+    fun setAiRewriteText(text: String) {
+        _uiState.update {
+            it.copy(aiTextRewrite = it.aiTextRewrite.copy(rewrittenText = text, errorMessage = null))
+        }
+    }
+
+    fun setAiRewriteModel(modelProfileId: String?) {
+        _uiState.update {
+            it.copy(
+                aiTextRewrite = it.aiTextRewrite.copy(
+                    selectedModelProfileId = modelProfileId,
+                    errorMessage = null,
+                )
+            )
+        }
+    }
+
+    fun setAiRewriteContextMode(mode: AiRewriteContextMode) {
+        _uiState.update {
+            it.copy(aiTextRewrite = it.aiTextRewrite.copy(contextMode = mode, errorMessage = null))
+        }
+    }
+
     fun selectAiRewriteHistory(artifactId: String) {
         val historyItem = _uiState.value.aiTextRewrite.history
             .firstOrNull { it.artifactId == artifactId }
@@ -623,6 +664,8 @@ class ReadAiDelegate(
             it.copy(
                 aiTextRewrite = it.aiTextRewrite.copy(
                     rewrittenText = historyItem.text,
+                    aiOriginalText = historyItem.text,
+                    aiArtifactId = historyItem.artifactId,
                     reasoningText = "",
                     thinkingDuration = 0,
                     errorMessage = null,
@@ -674,6 +717,25 @@ class ReadAiDelegate(
                             } else {
                                 state.aiTextRewrite.rewrittenText
                             },
+                            aiOriginalText = if (
+                                selectLatest &&
+                                !state.aiTextRewrite.isLoading &&
+                                state.aiTextRewrite.rewrittenText.isBlank() &&
+                                latest != null
+                            ) {
+                                latest.text
+                            } else {
+                                state.aiTextRewrite.aiOriginalText
+                            },
+                            aiArtifactId = if (
+                                selectLatest &&
+                                !state.aiTextRewrite.isLoading &&
+                                state.aiTextRewrite.rewrittenText.isBlank()
+                            ) {
+                                latest?.artifactId
+                            } else {
+                                state.aiTextRewrite.aiArtifactId
+                            },
                         )
                     )
                 }
@@ -719,6 +781,8 @@ class ReadAiDelegate(
                 aiTextRewrite = it.aiTextRewrite.copy(
                     isLoading = false,
                     rewrittenText = "",
+                    aiOriginalText = "",
+                    aiArtifactId = null,
                     reasoningText = "",
                     thinkingDuration = 0,
                     referenceCount = 0,
@@ -744,6 +808,8 @@ class ReadAiDelegate(
                 aiTextRewrite = it.aiTextRewrite.copy(
                     isLoading = true,
                     rewrittenText = "",
+                    aiOriginalText = "",
+                    aiArtifactId = null,
                     reasoningText = "",
                     thinkingDuration = 0,
                     referenceCount = 0,
@@ -753,7 +819,12 @@ class ReadAiDelegate(
         }
         aiTextRewriteJob = scope.launch {
             try {
-                val referenceContext = buildAiRewriteReferenceContext(request)
+                val rewriteState = _uiState.value.aiTextRewrite
+                val referenceContext = if (rewriteState.contextMode == AiRewriteContextMode.SELECTION_ONLY) {
+                    AiRewriteReferenceContext()
+                } else {
+                    buildAiRewriteReferenceContext(request)
+                }
                 val aiRequest = AiTextFactoryUseCase.Request(
                         bookUrl = request.bookUrl,
                         chapterIndex = request.chapterIndex,
@@ -767,9 +838,14 @@ class ReadAiDelegate(
                         referenceText = referenceContext.text,
                         skipCache = true,
                         artifactContentHash = request.sourceContentHash,
+                    modelProfileIdOverride = rewriteState.selectedModelProfileId,
+                    contextMode = rewriteState.contextMode,
                     reasoningLevel = _uiState.value.aiTextRewrite.reasoningLevel,
                     )
                 val taskId = withContext(IO) { aiTextFactoryUseCase.start(aiRequest) }
+                _uiState.update {
+                    it.copy(aiTextRewrite = it.aiTextRewrite.copy(aiArtifactId = taskId))
+                }
                 aiTextFactoryUseCase.observeTaskById(taskId).collect { task ->
                     val snapshot = task ?: return@collect
                     if (!isCurrentAiTextRewrite(request)) return@collect
@@ -780,6 +856,7 @@ class ReadAiDelegate(
                                 aiTextRewrite = rewrite.copy(
                                     isLoading = true,
                                     rewrittenText = snapshot.output.orEmpty(),
+                                    aiOriginalText = snapshot.output.orEmpty(),
                                     reasoningText = snapshot.reasoning,
                                     referenceCount = referenceContext.count,
                                     errorMessage = null,
@@ -793,6 +870,7 @@ class ReadAiDelegate(
                                     aiTextRewrite = rewrite.copy(
                                         isLoading = false,
                                         rewrittenText = snapshot.output.orEmpty(),
+                                        aiOriginalText = snapshot.output.orEmpty(),
                                         reasoningText = snapshot.reasoning,
                                         referenceCount = referenceContext.count,
                                         errorMessage = null,
@@ -850,6 +928,7 @@ class ReadAiDelegate(
         }
         val pattern = normalizeAiReplacementText(rewriteState.originalText)
         val replacement = normalizeAiReplacementText(rewriteState.rewrittenText)
+        val aiOriginal = normalizeAiReplacementText(rewriteState.aiOriginalText)
         if (pattern.isBlank()) {
             _uiState.update {
                 it.copy(
@@ -895,6 +974,12 @@ class ReadAiDelegate(
                     contextAfter = pendingAiTextRewriteRequest?.contextAfter.orEmpty(),
                     replacementText = replacement,
                     kind = BookContentProcess.KIND_AI_REWRITE,
+                    source = if (aiOriginal.isNotBlank() && aiOriginal != replacement) {
+                        BookContentProcess.SOURCE_AI_MANUAL
+                    } else {
+                        BookContentProcess.SOURCE_AI
+                    },
+                    aiArtifactId = rewriteState.aiArtifactId,
                 ).getOrThrow()
                 host.reloadChapterAfterContentProcessChanged(
                     bookUrl = rewriteState.bookUrl,

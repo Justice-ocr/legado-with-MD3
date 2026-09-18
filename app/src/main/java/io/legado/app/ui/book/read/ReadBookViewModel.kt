@@ -214,6 +214,7 @@ class ReadBookViewModel(
             }
         },
         bookContentProcessGateway = bookContentProcessGateway,
+        saveBookContentProcessUseCase = saveBookContentProcessUseCase,
     ) }
 
     val contentProcessState get() = contentProcessDelegate.uiState
@@ -314,6 +315,7 @@ class ReadBookViewModel(
         generateChapterSummaryUseCase = generateChapterSummaryUseCase,
         cleanSelectedTextUseCase = cleanSelectedTextUseCase,
         aiTextFactoryUseCase = aiTextFactoryUseCase,
+        aiProfileGateway = aiProfileGateway,
         saveBookContentProcessUseCase = saveBookContentProcessUseCase,
         aiArtifactGateway = aiArtifactGateway,
         aiPromptPresetGateway = aiPromptPresetGateway,
@@ -360,6 +362,7 @@ class ReadBookViewModel(
             override suspend fun findChapter(bookUrl: String, chapterIndex: Int): BookChapter? = bookRepository.getChapter(bookUrl, chapterIndex)
         },
         readSettingsRepository = readSettingsRepository,
+        saveBookContentProcessUseCase = saveBookContentProcessUseCase,
     ) }
 
     val contentEditState get() = contentEditDelegate.uiState
@@ -905,6 +908,15 @@ class ReadBookViewModel(
             is ReadBookIntent.LoadContentProcesses -> contentProcessDelegate.load()
             is ReadBookIntent.ToggleContentProcess ->
                 contentProcessDelegate.toggle(intent.id, intent.enabled)
+            is ReadBookIntent.OpenContentProcessHistory -> {
+                _uiState.update { it.copy(activeSheet = ReadBookSheet.ContentProcesses) }
+                contentProcessDelegate.openHistory(intent.id)
+            }
+            is ReadBookIntent.DismissContentProcessHistory -> contentProcessDelegate.dismissHistory()
+            is ReadBookIntent.SetContentProcessRevisionText ->
+                contentProcessDelegate.setRevisionText(intent.text)
+            is ReadBookIntent.SaveContentProcessRevision -> contentProcessDelegate.saveRevision()
+            is ReadBookIntent.RollbackContentProcess -> contentProcessDelegate.rollback(intent.id)
             is ReadBookIntent.RequestDeleteContentProcess ->
                 contentProcessDelegate.requestDelete(intent.item)
             is ReadBookIntent.ConfirmDeleteContentProcess -> contentProcessDelegate.confirmDelete()
@@ -912,6 +924,10 @@ class ReadBookViewModel(
             is ReadBookIntent.SelectAiRewritePreset -> aiDelegate.selectAiRewritePreset(intent.presetId)
             is ReadBookIntent.SetAiRewriteTemporaryInstruction ->
                 aiDelegate.setAiRewriteTemporaryInstruction(intent.instruction)
+            is ReadBookIntent.SetAiRewriteText -> aiDelegate.setAiRewriteText(intent.text)
+            is ReadBookIntent.SetAiRewriteModel -> aiDelegate.setAiRewriteModel(intent.modelProfileId)
+            is ReadBookIntent.SetAiRewriteContextMode ->
+                aiDelegate.setAiRewriteContextMode(intent.mode)
             is ReadBookIntent.SelectAiRewriteHistory ->
                 aiDelegate.selectAiRewriteHistory(intent.artifactId)
             is ReadBookIntent.GenerateAiTextRewrite -> aiDelegate.generateSelectedAiTextRewrite()

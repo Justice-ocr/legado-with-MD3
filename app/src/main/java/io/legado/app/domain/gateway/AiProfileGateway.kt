@@ -8,6 +8,7 @@ import io.legado.app.domain.model.AiModelDraft
 import io.legado.app.domain.model.AiProfileDraft
 import io.legado.app.domain.model.AiProviderDraft
 import io.legado.app.domain.model.AiTaskPresetConfig
+import io.legado.app.domain.model.AiModelConfig
 import kotlinx.coroutines.flow.Flow
 
 interface AiProfileGateway {
@@ -17,6 +18,7 @@ interface AiProfileGateway {
     suspend fun getProvider(id: String): AiProviderProfile?
     suspend fun getModel(id: String): AiModelProfile?
     suspend fun getTaskPreset(taskType: String): AiTaskPresetConfig?
+    suspend fun getModelConfig(id: String): AiModelConfig? = null
     suspend fun getProviderApiKey(providerId: String): String
     suspend fun saveProvider(draft: AiProviderDraft): AiProviderProfile
     suspend fun saveModel(draft: AiModelDraft): AiModelProfile
