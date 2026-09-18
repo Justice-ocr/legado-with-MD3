@@ -63,12 +63,13 @@ class ReadContentEditDelegate(
                 cursorOffset = 0,
                 loading = false,
                 saveToSource = false,
+                errorMessage = null,
             )
         }
     }
 
     fun setText(text: String) {
-        _uiState.update { it.copy(text = text) }
+        _uiState.update { it.copy(text = text, errorMessage = null) }
     }
 
     fun setSaveToSource(value: Boolean) {
@@ -76,7 +77,7 @@ class ReadContentEditDelegate(
     }
 
     fun load() {
-        _uiState.update { it.copy(loading = true, text = "") }
+        _uiState.update { it.copy(loading = true, text = "", errorMessage = null) }
         Coroutine.async(scope, Dispatchers.IO) {
             val book = ReadBook.book ?: return@async
             val chapter = host.findChapter(book.bookUrl, ReadBook.durChapterIndex)
@@ -104,33 +105,42 @@ class ReadContentEditDelegate(
     }
 
     fun save(content: String, saveToSource: Boolean) {
+        val stateSnapshot = _uiState.value
+        if (stateSnapshot.loading) return
+        val original = stateSnapshot.originalText
+        _uiState.update { it.copy(loading = true, errorMessage = null) }
         Coroutine.async(scope, Dispatchers.IO) {
-            val book = ReadBook.book ?: return@async
-            val chapter = host.findChapter(book.bookUrl, ReadBook.durChapterIndex)
-                ?: return@async
+            val book = requireNotNull(ReadBook.book) { "Book is unavailable" }
+            val chapter = requireNotNull(
+                host.findChapter(book.bookUrl, ReadBook.durChapterIndex)
+            ) { "Chapter is unavailable" }
             if (saveToSource) {
                 BookHelp.saveText(book, chapter, content, true)
             } else {
-                val original = _uiState.value.originalText
-                val prefix = commonPrefixLength(original, content)
-                val suffix = commonSuffixLength(original, content, prefix)
-                val selected = original.substring(prefix, original.length - suffix)
-                val replacement = content.substring(prefix, content.length - suffix)
-                if (selected.isNotBlank() && selected != replacement) {
+                buildEditSpan(original, content)?.let { edit ->
                     saveBookContentProcessUseCase.saveReplacement(
                         bookUrl = book.bookUrl,
                         chapterIndex = chapter.index,
-                        chapterPosition = prefix,
-                        selectedText = selected,
-                        contextBefore = original.substring(0, prefix).takeLast(64),
-                        contextAfter = original.substring(original.length - suffix).take(64),
-                        replacementText = replacement,
+                        chapterPosition = edit.start,
+                        selectedText = edit.selected,
+                        contextBefore = original.substring(0, edit.start).takeLast(64),
+                        contextAfter = original.substring(edit.endExclusive).take(64),
+                        replacementText = edit.replacement,
                         kind = io.legado.app.data.entities.BookContentProcess.KIND_MANUAL_EDIT,
                         source = io.legado.app.data.entities.BookContentProcess.SOURCE_USER_EDIT,
                     ).getOrThrow()
                 }
             }
             ReadBook.loadContent(ReadBook.durChapterIndex, resetPageOffset = false)
+            host.setActiveSheet(null)
+            onSheetDismissed()
+        }.onError { error ->
+            _uiState.update {
+                it.copy(
+                    loading = false,
+                    errorMessage = error.localizedMessage ?: "Save failed",
+                )
+            }
         }
     }
 
@@ -219,4 +229,63 @@ class ReadContentEditDelegate(
         }
         return length
     }
+
+    private fun buildEditSpan(original: String, content: String): EditSpan? {
+        if (original == content) return null
+        val prefix = commonPrefixLength(original, content)
+        val suffix = commonSuffixLength(original, content, prefix)
+        val selectedEnd = original.length - suffix
+        val replacementEnd = content.length - suffix
+        if (selectedEnd > prefix) {
+            return EditSpan(
+                start = prefix,
+                endExclusive = selectedEnd,
+                selected = original.substring(prefix, selectedEnd),
+                replacement = content.substring(prefix, replacementEnd),
+            )
+        }
+
+        require(original.isNotEmpty()) { "Empty chapter content cannot be edited without writing to source" }
+        val inserted = content.substring(prefix, replacementEnd)
+        val left = (prefix - 1 downTo 0).firstOrNull { !original[it].isProcessWhitespace() }
+        val right = (prefix until original.length).firstOrNull { !original[it].isProcessWhitespace() }
+        return when {
+            left != null && right != null -> {
+                val selected = original.substring(left, right + 1)
+                val insertionOffset = prefix - left
+                EditSpan(
+                    start = left,
+                    endExclusive = right + 1,
+                    selected = selected,
+                    replacement = selected.substring(0, insertionOffset) + inserted +
+                        selected.substring(insertionOffset),
+                )
+            }
+
+            right != null -> EditSpan(
+                start = right,
+                endExclusive = right + 1,
+                selected = original.substring(right, right + 1),
+                replacement = inserted + original[right],
+            )
+
+            left != null -> EditSpan(
+                start = left,
+                endExclusive = left + 1,
+                selected = original.substring(left, left + 1),
+                replacement = original[left] + inserted,
+            )
+
+            else -> error("Chapter content contains no editable text anchor")
+        }
+    }
+
+    private fun Char.isProcessWhitespace(): Boolean = isWhitespace() || this == '　'
+
+    private data class EditSpan(
+        val start: Int,
+        val endExclusive: Int,
+        val selected: String,
+        val replacement: String,
+    )
 }

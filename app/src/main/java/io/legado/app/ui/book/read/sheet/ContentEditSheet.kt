@@ -96,13 +96,16 @@ fun ContentEditSheet(
 
     AppModalBottomSheet(
         show = show,
-        onDismissRequest = onDismissRequest,
+        onDismissRequest = {
+            if (!state.loading) onDismissRequest()
+        },
         title = state.title,
         startAction = {
             MediumTonalButton(
                 onClick = { onIntent(ReadBookIntent.ResetContentEdit) },
                 icon = Icons.Default.Restore,
                 contentDescription = stringResource(R.string.reset),
+                enabled = !state.loading,
             )
         },
         endAction = {
@@ -114,10 +117,10 @@ fun ContentEditSheet(
                             state.saveToSource,
                         )
                     )
-                    onDismissRequest()
                 },
                 icon = Icons.Default.Save,
                 contentDescription = stringResource(R.string.action_save),
+                enabled = !state.loading,
             )
         },
     ) {
@@ -146,6 +149,15 @@ fun ContentEditSheet(
                         .fillMaxWidth()
                         .weight(1f, fill = false)
                         .height(400.dp),
+                )
+            }
+
+            state.errorMessage?.let { message ->
+                Spacer(Modifier.height(8.dp))
+                AppText(
+                    text = message,
+                    color = LegadoTheme.colorScheme.error,
+                    style = LegadoTheme.typography.bodySmall,
                 )
             }
 

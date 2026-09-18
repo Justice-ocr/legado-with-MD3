@@ -16,4 +16,5 @@ data class ContentEditUiState(
     val cursorOffset: Int = 0,
     val isLocalTxt: Boolean = false,
     val saveToSource: Boolean = false,
+    val errorMessage: String? = null,
 )

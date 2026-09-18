@@ -914,8 +914,12 @@ class ReadAiDelegate(
         val rewriteState = _uiState.value.aiTextRewrite
         val book = ReadBook.book ?: return
         if (rewriteState.isLoading || rewriteState.isApplying || rewriteState.errorMessage != null) return
+        val request = pendingAiTextRewriteRequest
         if (book.bookUrl != rewriteState.bookUrl ||
-            ReadBook.durChapterIndex != rewriteState.chapterIndex
+            request == null ||
+            request.bookUrl != rewriteState.bookUrl ||
+            request.chapterIndex != rewriteState.chapterIndex ||
+            request.originalText != rewriteState.originalText
         ) {
             _uiState.update {
                 it.copy(
@@ -968,10 +972,10 @@ class ReadAiDelegate(
                 saveBookContentProcessUseCase.saveReplacement(
                     bookUrl = rewriteState.bookUrl,
                     chapterIndex = rewriteState.chapterIndex,
-                    chapterPosition = pendingAiTextRewriteRequest?.chapterPosition ?: 0,
+                    chapterPosition = request.chapterPosition,
                     selectedText = pattern,
-                    contextBefore = pendingAiTextRewriteRequest?.contextBefore.orEmpty(),
-                    contextAfter = pendingAiTextRewriteRequest?.contextAfter.orEmpty(),
+                    contextBefore = request.contextBefore,
+                    contextAfter = request.contextAfter,
                     replacementText = replacement,
                     kind = BookContentProcess.KIND_AI_REWRITE,
                     source = if (aiOriginal.isNotBlank() && aiOriginal != replacement) {

@@ -96,18 +96,21 @@ class ReadContentProcessDelegate(
             runCatching {
                 val process = requireNotNull(bookContentProcessGateway.getById(id))
                 val groupId = process.revisionGroupId ?: process.id
-                val history = bookContentProcessGateway.getRevisionHistory(groupId)
-                    .mapNotNull { it.toContentProcessItemUi() }
-                    .toImmutableList()
-                val current = history.firstOrNull(ContentProcessItemUi::isCurrent)
-                    ?: history.firstOrNull()
-                current to history
-            }.onSuccess { (current, history) ->
+                val revisions = bookContentProcessGateway.getRevisionHistory(groupId)
+                val persistedHistory = revisions.mapNotNull { it.toContentProcessItemUi() }
+                val current = persistedHistory.firstOrNull(ContentProcessItemUi::isCurrent)
+                    ?: persistedHistory.firstOrNull()
+                val original = revisions.firstNotNullOfOrNull { revision ->
+                    revision.originalText?.takeIf(String::isNotBlank)
+                } ?: current?.selectedText
+                Triple(current, persistedHistory.toImmutableList(), original.orEmpty())
+            }.onSuccess { (current, history, original) ->
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         historyItem = current,
                         history = history,
+                        originalText = original,
                         revisionText = current?.replacementText.orEmpty(),
                         errorMessage = null,
                     )
@@ -125,7 +128,12 @@ class ReadContentProcessDelegate(
 
     fun dismissHistory() {
         _uiState.update {
-            it.copy(historyItem = null, history = persistentListOf(), revisionText = "")
+            it.copy(
+                historyItem = null,
+                history = persistentListOf(),
+                originalText = "",
+                revisionText = "",
+            )
         }
     }
 
@@ -154,11 +162,34 @@ class ReadContentProcessDelegate(
 
     fun rollback(id: String) {
         val target = _uiState.value.history.firstOrNull { it.id == id } ?: return
+        val current = _uiState.value.historyItem ?: return
         _uiState.update { it.copy(isSavingRevision = true) }
         scope.launch(IO) {
             saveBookContentProcessUseCase.saveRevision(
-                processId = target.id,
+                processId = current.id,
                 replacementText = target.replacementText,
+                source = BookContentProcess.SOURCE_ROLLBACK,
+            ).onSuccess { saved ->
+                _uiState.update { it.copy(isSavingRevision = false) }
+                reloadCurrentChapter()
+                load()
+                openHistory(saved.id)
+            }.onFailure { error ->
+                _uiState.update { it.copy(isSavingRevision = false) }
+                host.showToast(error.localizedMessage ?: context.getString(R.string.error))
+            }
+        }
+    }
+
+    fun rollbackToOriginal() {
+        val current = _uiState.value.historyItem ?: return
+        val original = _uiState.value.originalText
+        if (original.isBlank()) return
+        _uiState.update { it.copy(isSavingRevision = true) }
+        scope.launch(IO) {
+            saveBookContentProcessUseCase.saveRevision(
+                processId = current.id,
+                replacementText = original,
                 source = BookContentProcess.SOURCE_ROLLBACK,
             ).onSuccess { saved ->
                 _uiState.update { it.copy(isSavingRevision = false) }
@@ -240,7 +271,7 @@ class ReadContentProcessDelegate(
             actionType = action.type,
             enabled = enabled && status == BookContentProcess.STATUS_ACTIVE,
             chapterIndex = chapterIndex ?: anchor.chapterIndex,
-            selectedText = anchor.selectedText,
+            selectedText = originalText ?: anchor.selectedText,
             replacementText = action.replacement ?: action.text.orEmpty(),
             createdAt = createdAt,
             revisionGroupId = revisionGroupId ?: id,
@@ -249,4 +280,5 @@ class ReadContentProcessDelegate(
             isCurrent = enabled && status == BookContentProcess.STATUS_ACTIVE,
         )
     }
+
 }

@@ -328,6 +328,7 @@ data class ContentProcessConfigUiState(
     val deleteItem: ContentProcessItemUi? = null,
     val historyItem: ContentProcessItemUi? = null,
     val history: ImmutableList<ContentProcessItemUi> = persistentListOf(),
+    val originalText: String = "",
     val revisionText: String = "",
     val isSavingRevision: Boolean = false,
     val errorMessage: String? = null,
@@ -347,6 +348,7 @@ data class ContentProcessItemUi(
     val revisionNumber: Int,
     val source: String,
     val isCurrent: Boolean,
+    val isOriginal: Boolean = false,
 )
 
 @Stable
@@ -512,6 +514,7 @@ sealed interface ReadBookIntent {
     data class SetContentProcessRevisionText(val text: String) : ReadBookIntent
     data object SaveContentProcessRevision : ReadBookIntent
     data class RollbackContentProcess(val id: String) : ReadBookIntent
+    data object RollbackContentProcessToOriginal : ReadBookIntent
     data class RequestDeleteContentProcess(val item: ContentProcessItemUi) : ReadBookIntent
     data object ConfirmDeleteContentProcess : ReadBookIntent
     data object DismissDeleteContentProcess : ReadBookIntent

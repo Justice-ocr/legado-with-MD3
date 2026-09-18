@@ -51,7 +51,8 @@ fun ContentProcessesSheet(
     onDismissRequest: () -> Unit,
 ) {
     AppModalBottomSheet(
-        show = show,
+        // 历史详情是独立的上层弹窗；打开后隐藏底部列表，避免两个弹层叠加。
+        show = show && state.historyItem == null,
         onDismissRequest = onDismissRequest,
         title = stringResource(R.string.content_processes),
     ) {
@@ -147,7 +148,17 @@ private fun ContentProcessHistoryDialog(
                     style = LegadoTheme.typography.labelSmall,
                     color = LegadoTheme.colorScheme.onSurfaceVariant,
                 )
-                AppText(text = item.selectedText)
+                AppText(text = state.originalText.ifBlank { item.selectedText })
+                MediumTonalButton(
+                    onClick = {
+                        onIntent(ReadBookIntent.RollbackContentProcessToOriginal)
+                    },
+                    icon = Icons.Default.Restore,
+                    text = stringResource(R.string.content_process_rollback),
+                    enabled = !state.isSavingRevision &&
+                        state.originalText.isNotBlank() &&
+                        state.originalText != item.replacementText,
+                )
                 AppTextField(
                     value = state.revisionText,
                     onValueChange = {
@@ -191,10 +202,14 @@ private fun ContentProcessHistoryDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 AppText(
-                                    text = stringResource(
-                                        R.string.content_process_revision_format,
-                                        revision.revisionNumber,
-                                    ),
+                                    text = if (revision.isOriginal) {
+                                        stringResource(R.string.ai_text_clean_before)
+                                    } else {
+                                        stringResource(
+                                            R.string.content_process_revision_format,
+                                            revision.revisionNumber,
+                                        )
+                                    },
                                     modifier = Modifier.weight(1f),
                                     style = LegadoTheme.typography.labelMedium,
                                 )

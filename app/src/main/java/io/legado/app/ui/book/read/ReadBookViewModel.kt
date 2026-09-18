@@ -909,7 +909,8 @@ class ReadBookViewModel(
             is ReadBookIntent.ToggleContentProcess ->
                 contentProcessDelegate.toggle(intent.id, intent.enabled)
             is ReadBookIntent.OpenContentProcessHistory -> {
-                _uiState.update { it.copy(activeSheet = ReadBookSheet.ContentProcesses) }
+                // 阅读正文中的段尾标记可以直接打开历史对话框；历史对话框始终由
+                // ContentProcessesSheet 组合，但不要求正文处理列表本身处于打开状态。
                 contentProcessDelegate.openHistory(intent.id)
             }
             is ReadBookIntent.DismissContentProcessHistory -> contentProcessDelegate.dismissHistory()
@@ -917,6 +918,8 @@ class ReadBookViewModel(
                 contentProcessDelegate.setRevisionText(intent.text)
             is ReadBookIntent.SaveContentProcessRevision -> contentProcessDelegate.saveRevision()
             is ReadBookIntent.RollbackContentProcess -> contentProcessDelegate.rollback(intent.id)
+            is ReadBookIntent.RollbackContentProcessToOriginal ->
+                contentProcessDelegate.rollbackToOriginal()
             is ReadBookIntent.RequestDeleteContentProcess ->
                 contentProcessDelegate.requestDelete(intent.item)
             is ReadBookIntent.ConfirmDeleteContentProcess -> contentProcessDelegate.confirmDelete()

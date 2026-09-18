@@ -91,9 +91,6 @@ fun ReadBookOverlayRoute(
     )
     val markingActive = rememberFeatureActivated(state.activeSheet is ReadBookSheet.Marking)
     val contentEditActive = rememberFeatureActivated(state.activeSheet is ReadBookSheet.ContentEdit)
-    val contentProcessActive = rememberFeatureActivated(
-        state.activeSheet is ReadBookSheet.TextProcessing
-    )
     val aiState = if (aiActive) {
         viewModel.aiState.collectAsStateWithLifecycle().value
     } else ReadAiUiState()
@@ -106,9 +103,9 @@ fun ReadBookOverlayRoute(
     val contentEditState = if (contentEditActive) {
         viewModel.contentEditState.collectAsStateWithLifecycle().value
     } else ContentEditUiState()
-    val contentProcessState = if (contentProcessActive) {
-        viewModel.contentProcessState.collectAsStateWithLifecycle().value
-    } else ContentProcessConfigUiState()
+    // 段尾历史标记可以在没有打开正文处理 Sheet 时直接触发查询，因此这里必须持续
+    // 观察独立域状态；否则后台已加载 historyItem，界面仍会一直拿到默认空状态。
+    val contentProcessState = viewModel.contentProcessState.collectAsStateWithLifecycle().value
     ReadBookScreen(
         state = state,
         aiState = aiState,
